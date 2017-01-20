@@ -1,0 +1,307 @@
+#+TITLE: Plan and details for the Project
+#+AUTHOR: Compro Prasad
+#+OPTIONS: toc:nil
+
+
+* Installing and Setting Up
+To run the project you should have at least MySQL, PHP and a server(Apache
+for example) installed on your machine.
+
+Since, I am on a Ubuntu machine. I installed the following packages and was
+good to go.
+#+BEGIN_EXAMPLE
+php7.0
+mysql-server
+mysql-client
+apache2
+libapache2-mod-php7.0
+#+END_EXAMPLE
+Just issue the following command in your terminal(for Ubuntu based distros):
+#+BEGIN_SRC sh
+sudo apt install php7.0 mysql-server mysql-client apache2 libapache2-mod-php7.0
+#+END_SRC
+Windows and Mac users have a single bundle installation so they should
+consult the internet accordingly.
+
+Now lets set up mysql user:
+1) Change the php file itself
+
+   Just open the [[file:lib/db.php::$users_db%20=%20new%20mysqli('localhost',%20'temp',%20'temporary',%20'users');][lib/db.php]] file and change the line
+   #+BEGIN_SRC php -i :exports code
+   $users_db = new mysqli('localhost', 'temp', 'temporary', 'users');
+   #+END_SRC
+   to
+   #+BEGIN_SRC php -i :exports code
+   $users_db = new mysqli('localhost', '<mysql_user>',
+                          '<mysql_password>', '<mysql_db>');
+   #+END_SRC
+   And you are done with setting up mysql user. Just read on.
+2) Create mysql user
+
+   In the mysql prompt type the following:
+   #+BEGIN_SRC sql -i
+   create user 'temp'@'localhost' identified by 'temporary';
+   #+END_SRC
+   This would create the appropriate user as per the [[file:lib/db.php][lib/db.php]] file. Now
+   create a database using the following query:
+   #+BEGIN_SRC sql -i
+   create database users;
+   #+END_SRC
+   Now that we have created the database its time to grant ~temp~ user the
+   access to query the ~users~ database.
+   #+BEGIN_SRC sql -i
+   grant all on users.* to 'temp'@'localhost';
+   #+END_SRC
+
+We can now load the [[file:index.php][index.php]] file in the browser provided this project is
+accessible through the server(http://localhost given a port). On my machine
+its loaded under the [[file:/var/www/html/][/var/www/html/]] directory.
+* Option 1
+** User Info Tables
+These tables are for storing *basic user information*.
+*** Users Table
+**** Table
+This table is *for every user* who signs up for fix@click.
+|-----------------+-------------+-------------------------------|
+| Field           | Type        | Comment                       |
+|-----------------+-------------+-------------------------------|
+| ID              | BIGINT      |                               |
+| EMAIL           | STRING(255) | Email address of the user     |
+|                 |             |                               |
+| NAME            | STRING(64)  | Full name of user             |
+|                 |             |                               |
+| PASSWORD        | CHAR(256)   | Encrypted with latest PHP     |
+|                 |             | password_hash backend(BCRYPT) |
+|                 |             |                               |
+| NOOFJOBS        | +SMALLINT   | If zero then user is public   |
+|                 |             |                               |
+| Phone No        |             |                               |
+|                 |             |                               |
+| DOJ             | TIMESTAMP   | Time when user joined the     |
+|                 |             | mechanic community.           |
+|                 |             |                               |
+| LASTLOGIN       | TIMESTAMP   | Time when user last logged in |
+|                 |             |                               |
+| LASTMODIFIED    | TIMESTAMP   | Time when user last modified  |
+|                 |             | his details                   |
+|                 |             |                               |
+| FULLTEXT(EMAIL) |             |                               |
+| FULLTEXT(NAME)  |             |                               |
+|-----------------+-------------+-------------------------------|
+
+Notes:
++ LASTMODIFIED will be 'ON UPDATE CURRENT_TIMESTAMP'
++ TIMESTAMP fields' default value will be CURRENT_TIMESTAMP
++ ID is a PRIMARY KEY
++ EMAIL is an UNIQUE field
++ NULL values are NOT allowed
+**** MySQL statement
+#+NAME: create-user-table
+#+BEGIN_SRC sql -i
+create table users
+(
+    email        varchar(256)      not null unique,
+    password     char(255)         not null,
+    name         varchar(80)       not null,
+    phone        char(10)          not null,
+    jobs         smallint unsigned not null default 0,
+    doj          timestamp         not null default current_timestamp,
+    lastlogin    timestamp         not null default current_timestamp,
+    lastmodified timestamp         not null default current_timestamp
+                                   on update current_timestamp,
+    id           bigint unsigned   primary key auto_increment,
+    fulltext(email),
+    fulltext(name)
+);
+#+END_SRC
+
+**** TODO PHP class representation
+#+BEGIN_SRC php -i
+class users
+{
+    public $email;
+    public $name;
+    public $password;
+    public $phone;
+    public $jobs;
+    public $doj;
+    public $lastlogin, $lastmodified;
+
+    static function init_connection($db_user, $db_pass,
+                                    $db_host, $db_database);
+    public function __construct();
+    public function __construct($user, $pass);
+    public function insert_user();
+    public function check_user($user);
+    public function update_user($user, $pass);
+    public function read_user($user, $pass);
+    public function ismechanic();
+    public function get_users_with_name(&$users, $count, $name = NULL);
+    public function get_users_with_city(&$users, $count, $city = NULL);
+    public function get_users_with_state(&$users, $count, $state = NULL);
+    public function get_users_with_country(&$users, $count, $country = NULL);
+}
+#+END_SRC
+
+**** Insert query string for MySQL in PHP
+[[file:signup.php::query("insert%20into%20users(email,password,name,jobs,mobile)"%20.][Goto signup.php]]
+#+BEGIN_SRC sql -i
+insert into users(email, password, name, phone, jobs)
+       values('$email', '$password', '$name', '$phone', '$jobs');
+#+END_SRC
+
+*** TODO Mechanics Table
+**** Table
+This table is *for engineers only*.
+|--------------------+------------------+---------+---------------------------------|
+| Field              | Type             | Default | Comment                         |
+|--------------------+------------------+---------+---------------------------------|
+| USERNAME           | VARCHAR(256)     |    NULL |                                 |
+|                    |                  |         |                                 |
+| CITY               | STRING(32)       |         |                                 |
+|                    |                  |         |                                 |
+| STATE              | STRING(32)       |         |                                 |
+|                    |                  |         |                                 |
+| COUNTRY            | STRING(32)       |         |                                 |
+|                    |                  |         |                                 |
+| DOB                | DATE             |         | Users not allowed below 18 yrs. |
+|                    |                  |         |                                 |
+| RATING             | TINYINT UNSIGNED |       0 | Rating will be integral out     |
+|                    |                  |         | of 100.                         |
+|                    |                  |         |                                 |
+| FULLTEXT(QUERYFEE) |                  |         |                                 |
+| FULLTEXT(PVFEE)    |                  |         |                                 |
+| FULLTEXT(QUAL)     |                  |         |                                 |
+| FULLTEXT(RATING)   |                  |         |                                 |
+| FULLTEXT(USERNAME) |                  |         |                                 |
+|--------------------+------------------+---------+---------------------------------|
+
+**** MySQL statement
+=MySQL= statement for creating the *Mechanics Table*:
+#+BEGIN_SRC sql -i
+create table mechanics_table
+(
+	USERNAME   varchar(256)      not null primary key unique,
+	QUERYFEE   smallint unsigned not null default 199,
+	PVFEE      smallint unsigned not null default 299,
+	QUAL       smallint unsigned null default 1,
+	HARDORSOFT boolean           not null default 0,
+	RATING     tinyint unsigned  null,
+	fulltext(QUERYFEE),
+	fulltext(PVFEE),
+	fulltext(QUAL),
+	fulltext(RATING),
+	fulltext(USERNAME)
+);
+#+END_SRC
+
+** TODO Recording Tables
+These tables are for *recording* different names.
+The *names are* just a *reference to another table* in the database.
+*** TODO Hardware Table
+
+|-------------------------+-------------|
+| Field                   | Type        |
+|-------------------------+-------------|
+| APPLIANCENAME           | VARCHAR(32) |
+| FULLTEXT(APPLIANCENAME) |             |
+|-------------------------+-------------|
+
+=MySQL= statement for creating *Hardware Table*:
+#+BEGIN_SRC sql -i
+create table hardware_table
+(
+	APPLIANCENAME varchar(32) not null primary key unique,
+	fulltext(APPLIANCENAME)
+);
+#+END_SRC
+
+*** TODO Software Table
+
+|------------------------+-------------|
+| Field                  | Type        |
+|------------------------+-------------|
+| SOFTWARENAME           | VARCHAR(32) |
+| FULLTEXT(SOFTWARENAME) |             |
+|------------------------+-------------|
+
+=MySQL= statement for creating *Software Table*:
+#+BEGIN_SRC sql -i
+create table software_table
+(
+	SOFTWARENAME varchar(32) not null primary key unique,
+	fulltext(SOFTWARENAME)
+);
+#+END_SRC
+
+* TODO Option 2
+** TODO User Info Tables
+This has only one table for storing *basic user information*.
+*** TODO Main Table
+This table is *for every user* who signs up for fix@click.
+|--------------------+---------------+---------------------------------|
+| Field              | Type          | Comment                         |
+|--------------------+---------------+---------------------------------|
+| USERNAME           | VARCHAR(256)  | USERNAME maybe e-mail or        |
+|                    |               | user defined username.          |
+|                    |               |                                 |
+| FIRSTNAME          | VARCHAR(64)   | Same as value of USERNAME.      |
+|                    |               |                                 |
+| LASTNAME           | VARCHAR(32)   |                                 |
+|                    |               |                                 |
+| PASSWORD           | CHAR(42)      |                                 |
+|                    |               |                                 |
+| JOBS               | VARCHAR(2048) | If NULL then user is public     |
+|                    |               | else ';' separated values.      |
+|                    |               |                                 |
+| QUALIFICATION      | VARCHAR(2048) | If NULL then user is public     |
+|                    |               | else ';' separated values.      |
+|                    |               |                                 |
+| CITY               | VARCHAR(32)   |                                 |
+|                    |               |                                 |
+| STATE              | VARCHAR(32)   |                                 |
+|                    |               |                                 |
+| COUNTRY            | VARCHAR(32)   |                                 |
+|                    |               |                                 |
+| DOB                | DATE          | Users not allowed below 17 yrs. |
+|                    |               |                                 |
+| LASTLOGIN          | TIMESTAMP     | Time when user last logged in.  |
+|                    |               |                                 |
+| LASTMODIFIED       | TIMESTAMP     | Time when user last modified    |
+|                    |               | his details.                    |
+|                    |               |                                 |
+|                    |               |                                 |
+| DOJ                | TIMESTAMP     | Time when user joined the       |
+|                    |               | mechanic community.             |
+|                    |               |                                 |
+| FULLTEXT(USERNAME) |               | Extra column for faster access  |
+|                    |               | by indexing username.           |
+|--------------------+---------------+---------------------------------|
+
+**** Notes
+
++ LASTMODIFIED will be 'ON UPDATE CURRENTTIMESTAMP'
++ FIRSTNAME's default will be same as USERNAME
++ TIMESTAMP fields' default value will be CURRENTTIMESTAMP
++ Other Fields' default value will be NULL
++ USERNAME is a PRIMARY KEY
++ Everything except JOBS and QUALIFICATION canNOT be NULL
+* PHP
+** Models
+*** load_POST into class vars
+*** verify_class vars
+*** save into database
+*** delete from database
+*** find in database
+*** Each type of field will have a separate class, namely:
+**** field will be a base class
+**** text_field will be a class for different kinds of strings/text
+**** password_field will be inherited from text_field
+**** email_field will also be inherited from text_field
+**** timestamp_field will be a separate class
+* Views
+** DONE Home Page
+CLOSED: [2017-01-14 Sat 17:08]
+index.php
+** TODO Profile Page
+profile.php
